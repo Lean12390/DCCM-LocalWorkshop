@@ -52,12 +52,26 @@ namespace LocalWorkshop
             try
             {
                 var cdb = CDBManager.Instance;
-                cdb.LoadJsonData(cdb.GetAlteredCDB());
+                cdb.LoadJsonData(RestoreRowOrder(cdb.GetAlteredCDB()));
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "[LocalWorkshop] CastleDB merge failed");
             }
+        }
+
+        private static string RestoreRowOrder(string json)
+        {
+            try
+            {
+                json = CdbRowOrder.Restore(json, out var sheets);
+                if (sheets > 0) Log.Information("[LocalWorkshop] restored row order in {count} CDB sheet(s)", sheets);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "[LocalWorkshop] could not restore CDB row order, using the DCCM merge as is");
+            }
+            return json;
         }
     }
 }

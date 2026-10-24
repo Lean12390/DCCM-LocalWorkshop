@@ -29,6 +29,7 @@ directly through the engine's file system and re-merges CastleDB.
 | `src/LocalWorkshopItem.cs` | `LocalWorkshopItem` (resolved mod) and `LocalWorkshopInfo` (parsed `settings.json`). |
 | `src/LocalWorkshopConfig.cs` | Loads/saves enabled mod ids to `coremod/config/localworkshop.json`. |
 | `src/GameModBridge.cs` | Mounts enabled paks into the game and merges CastleDB. The only component that talks to the engine's file system. |
+| `src/CdbRowOrder.cs` | Fixes up the merged CastleDB JSON: restores original row order, drops `__STRUCTURE__` rows (3.4). |
 | `src/LocalWorkshopMenu.cs` | The in-game menu (`IModMenu`): status line + one toggle per mod. |
 
 ---
@@ -62,7 +63,26 @@ Earlier versions mounted paks from a hook on `dc.tool.mod.ModManager.onSteamInit
   collects the diffs from every mounted pak and returns the merged CastleDB JSON (with
   `UseGameCDBManager` enabled in the core config it delegates to the game's own CDB manager);
   `LoadJsonData(...)` loads that JSON into the live game database via `dc.Data.loadFrom`.
-  `GameModBridge.MergeCdb()` performs this pair.
+  `GameModBridge.MergeCdb()` performs this pair and fixes up the JSON in between (see below).
+* **Row order fix-up (`src/CdbRowOrder.cs`):** the core (35.14.1) merges row files in pak order
+  (alphabetical) and, for each one, removes the matching row and **appends it to the end of its
+  separator group**. It also merges each sheet's `__STRUCTURE__.json` as if it were a row. Some
+  sheets are read by position — e.g. `difficulty`, indexed by the number of active boss cells —
+  so a mod that changes all six difficulty rows would leave them as Expert, Hard, Hell, …, and
+  0 BC would play as Expert. Before `LoadJsonData` the bridge therefore, for every sheet that has
+  `__original_Index` rows or structure rows:
+  1. splits `lines` into separator segments using the `separators` start-index array;
+  2. drops structure rows (only `__`-prefixed keys, including `__columns`);
+  3. puts each row with `__original_Index` back at that index **within its segment** (that is
+     what the field means; `__separator_group_Name` picks the segment) — other rows fill the
+     remaining slots in their current order;
+  4. rebuilds `separators` from the new segment sizes, so group-derived data (e.g. `affix`
+     groups) keeps the same boundaries;
+  5. removes the helper keys `__original_Index`, `__separator_group_ID`, `__separator_group_Name`
+     (unless the sheet declares a column with that name).
+
+  Sheets without such rows are left untouched. If the fix-up throws, the merge is loaded as the
+  core produced it and a warning is logged.
 
 ### 3.5 Menu API
 * **Symbols:** `ModCore.Menu.IModMenuProvider` / `IModMenu`; `dc.ui.Options` widgets
