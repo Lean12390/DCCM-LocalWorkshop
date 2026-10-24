@@ -1,5 +1,3 @@
-using dc.tool.mod;
-using HaxeProxy.Runtime;
 using ModCore.Modules;
 using ModCore.Utilities;
 using Serilog;
@@ -16,15 +14,6 @@ namespace LocalWorkshop
 
         public int MountedCount => _mounted.Count;
 
-        public void Install()
-        {
-            Hook_ModManager.onSteamInit += (orig, self) =>
-            {
-                orig(self);
-                ApplyEnabledDiffPaks();
-            };
-        }
-
         public void SetItems(IReadOnlyList<LocalWorkshopItem> items) => _items = items;
 
         public void ApplyEnabledDiffPaks()
@@ -32,11 +21,6 @@ namespace LocalWorkshop
             foreach (var item in _items)
                 if (_config.IsEnabled(item)) MountPak(item.PakPath);
 
-            if (_mounted.Count > 0) MergeCdb();
-        }
-
-        public void ReMergeIfMounted()
-        {
             if (_mounted.Count > 0) MergeCdb();
         }
 
@@ -67,9 +51,8 @@ namespace LocalWorkshop
         {
             try
             {
-                dc.Data.Class.loadJson.Invoke(
-                    CDBManager.Class.instance.getAlteredCDB(),
-                    default(Ref<bool>));
+                var cdb = CDBManager.Instance;
+                cdb.LoadJsonData(cdb.GetAlteredCDB());
             }
             catch (Exception ex)
             {

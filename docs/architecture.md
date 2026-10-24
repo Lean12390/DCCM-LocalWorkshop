@@ -35,19 +35,17 @@ directly through the engine's file system and re-merges CastleDB.
 
 ## 3. Engine hooks & APIs used
 
-### 3.1 `ModManager.onSteamInit` — mount entry point
-* **Symbol:** `dc.tool.mod.ModManager.onSteamInit(self)` · **HL #6357** · hooked via `Hook_ModManager.onSteamInit`.
-* **Why:** this fires after the game's own mod/Steam initialization, at a point where the pak file
-  system exists and it is safe to add more paks. `GameModBridge.Install()` subscribes to it, calls
-  the original, then mounts every enabled local pak.
+### 3.1 (removed) `ModManager.onSteamInit`
+Earlier versions mounted paks from a hook on `dc.tool.mod.ModManager.onSteamInit`. Game v35
+(2026-06-16) no longer has `dc.tool.mod`, so the hook was removed; mounting moved to 3.2.
 
-### 3.2 `IOnAfterLoadingAssets` — CastleDB re-merge
+### 3.2 `IOnAfterLoadingAssets` — mount entry point
 * **Symbol:** DCCM event interface (`ModCore.Events.Interfaces.IOnAfterLoadingAssets`).
 * **Source:** broadcast by the DCCM core's `FsPak` module right after `dc.Boot.initRes`
   (`dc.Boot.init` is **HL #6118**; the core hooks `initRes` and broadcasts the event).
-* **Why:** whenever the engine (re)loads assets, the merged CastleDB must be re-applied or local
-  data changes would be lost. `LocalWorkshopMod` implements the interface and calls
-  `GameModBridge.ReMergeIfMounted()`.
+* **Why:** at this point the pak file system exists and it is safe to add more paks.
+  `LocalWorkshopMod` implements the interface and calls `GameModBridge.ApplyEnabledDiffPaks()`,
+  which mounts every enabled local pak (already-mounted paks are skipped) and merges CastleDB.
 
 ### 3.3 `FileSystem.loadPak` — mounting a pak
 * **Symbol:** `dc.hxd.fmt.pak.FileSystem.loadPak(file)` · **HL #6375**.
@@ -57,13 +55,14 @@ directly through the engine's file system and re-merges CastleDB.
 * Related (not used by this version, but present on the same type): `loadModPak` **#6376**,
   `canLoadModPak` **#6377**, `unloadModPak` **#6378**.
 
-### 3.4 `CDBManager.getAlteredCDB` + `Data.loadJson` — applying data changes
-* **Symbols:** `dc.tool.mod.CDBManager.getAlteredCDB()` · **HL #31804** (via `CDBManager.Class.instance`),
-  and `dc.Data.loadJson(json, ref)`.
-* **Flow:** paks carry CastleDB changes as a `data.cdb_/<sheet>/<row>.json` tree. The engine's
-  `CDBManager` collects the diffs from every mounted pak; `getAlteredCDB()` returns the merged
-  CastleDB JSON; `Data.loadJson(...)` loads that JSON into the live game database. `GameModBridge.MergeCdb()`
-  performs this pair.
+### 3.4 `CDBManager.GetAlteredCDB` + `LoadJsonData` — applying data changes
+* **Symbols:** DCCM core module `ModCore.Modules.CDBManager` (`CDBManager.Instance`):
+  `GetAlteredCDB()` and `LoadJsonData(json)`.
+* **Flow:** paks carry CastleDB changes as a `data.cdb_/<sheet>/<row>.json` tree. `GetAlteredCDB()`
+  collects the diffs from every mounted pak and returns the merged CastleDB JSON (with
+  `UseGameCDBManager` enabled in the core config it delegates to the game's own CDB manager);
+  `LoadJsonData(...)` loads that JSON into the live game database via `dc.Data.loadFrom`.
+  `GameModBridge.MergeCdb()` performs this pair.
 
 ### 3.5 Menu API
 * **Symbols:** `ModCore.Menu.IModMenuProvider` / `IModMenu`; `dc.ui.Options` widgets
@@ -80,18 +79,14 @@ DCCM core boots
   └─ FsPak loads the base game res.pak, sets up the VFS
 
 LocalWorkshopMod.Initialize()
-  ├─ GameModBridge.Install()        → subscribe to ModManager.onSteamInit (3.1)
   └─ Scan()                         → LocalWorkshopRepository.Scan(modRoot)
 
-ModManager.onSteamInit fires
-  └─ GameModBridge.ApplyEnabledDiffPaks()
-       ├─ for each enabled mod: FileSystem.loadPak(pak)   (3.3)
-       └─ MergeCdb()                                       (3.4)
-
-dc.Boot.initRes runs → core broadcasts IOnAfterLoadingAssets
+dc.Boot.initRes runs → core broadcasts IOnAfterLoadingAssets (3.2)
   └─ LocalWorkshopMod.OnAfterLoadingAssets()
        ├─ Scan() (idempotent)
-       └─ GameModBridge.ReMergeIfMounted()  → MergeCdb()  (3.4)
+       └─ GameModBridge.ApplyEnabledDiffPaks()
+            ├─ for each enabled mod: FileSystem.loadPak(pak)   (3.3)
+            └─ MergeCdb()                                       (3.4)
 ```
 
 ---
